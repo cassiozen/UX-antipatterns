@@ -7,8 +7,9 @@
    1.2. [Click targets that shift on hover or focus](#12-click-targets-that-shift-on-hover-or-focus)
 
 2. [Feedback & Responsiveness](#2-feedback--responsiveness)
-   2.1. [No immediate feedback on action](#21-no-immediate-feedback-on-action)  
+   2.1. [No immediate feedback on action](#21-no-immediate-feedback-on-action)
    2.2. [Optimistic UI that silently reverts](#22-optimistic-ui-that-silently-reverts)
+   2.3. [Long-running operations with no progress indication](#23-long-running-operations-with-no-progress-indication)
 
 3. [Error Handling & Recovery](#3-error-handling--recovery)
    3.1. [Error messages without recovery guidance](#31-error-messages-without-recovery-guidance)  
@@ -27,9 +28,10 @@
    5.1. [Focus Stealing](#51-focus-stealing)
 
 6. [Notifications, Interruptions & Dialogs](#6-notifications-interruptions--dialogs)
-   6.1. [Repeated notifications in short succession](#61-repeated-notifications-in-short-succession)  
-   6.2. [Overlays that obscure content](#62-overlays-that-obscure-content)  
+   6.1. [Repeated notifications in short succession](#61-repeated-notifications-in-short-succession)
+   6.2. [Overlays that obscure content](#62-overlays-that-obscure-content)
    6.3. [Modals that can't be dismissed with standard gestures](#63-modals-that-cant-be-dismissed-with-standard-gestures)
+   6.4. [Destructive actions with no confirmation](#64-destructive-actions-with-no-confirmation)
 
 7. [Navigation, Routing & State Persistence](#7-navigation-routing--state-persistence)
    7.1. [Redirects that lose the original target](#71-redirects-that-lose-the-original-target)  
@@ -42,8 +44,9 @@
    8.4. [Gesture conflicts](#84-gesture-conflicts)
 
 9. [Timing, Debounce & Race Conditions](#9-timing-debounce--race-conditions)
-   9.1. [Duplicate submission from double-click / double-tap](#91-duplicate-submission-from-double-click--double-tap)  
+   9.1. [Duplicate submission from double-click / double-tap](#91-duplicate-submission-from-double-click--double-tap)
    9.2. [Stale response overwriting newer intent](#92-stale-response-overwriting-newer-intent)
+   9.3. [Session expiration during active use](#93-session-expiration-during-active-use)
 
 10. [Accessibility as UX](#10-accessibility-as-ux)
    10.1. [Focus indicators removed](#101-focus-indicators-removed)  
@@ -130,6 +133,30 @@
 - Rollback logic that doesn't trigger a user-visible notification.
 
 **Fix:** If an optimistic update must be rolled back, show an explicit notification explaining what happened and offer a retry path.
+
+---
+
+### 2.3 Long-running operations with no progress indication
+
+**Violation:** An operation takes 10+ seconds and the user sees only a spinner with no progress bar, percentage, estimated time, or status message. The user doesn't know if the system is working, stuck, or nearly done.
+
+**Detect:**
+- Async operations that may exceed ~5 seconds (file uploads, data exports, batch processing) with only a spinner or generic "Loading..." indicator.
+- Absence of progress tracking (percentage, step count, bytes transferred) for multi-second operations.
+
+```jsx
+{/* VIOLATION: indeterminate spinner for a long upload */}
+{isUploading && <Spinner />}
+
+{/* FIX: show progress for long operations */}
+{isUploading && (
+  <div role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
+    Uploading: {progress}%
+  </div>
+)}
+```
+
+**Fix:** For operations that may exceed ~5 seconds, show determinate progress (percentage, step N of M, bytes transferred). If determinate progress is unavailable, show a status message that updates ("Preparing...", "Processing...", "Almost done...") so the user knows the system hasn't frozen.
 
 ---
 
@@ -298,6 +325,20 @@
 
 **Fix:** Deduplicate identical notifications. Batch or throttle similar ones ("3 new messages" instead of 3 separate toasts). Offer mute/disable options.
 
+```js
+// VIOLATION: fires a toast for every event
+socket.on("message", (msg) => showToast(msg.text));
+
+// FIX: batch with a throttle window
+let pending = [];
+const flush = throttle(() => {
+  if (pending.length === 1) showToast(pending[0].text);
+  else if (pending.length > 1) showToast(`${pending.length} new messages`);
+  pending = [];
+}, 2000);
+socket.on("message", (msg) => { pending.push(msg); flush(); });
+```
+
 ---
 
 ### 6.2 Overlays that obscure content
@@ -325,6 +366,33 @@
 
 ---
 
+### 6.4 Destructive actions with no confirmation
+
+**Violation:** Clicking "Delete," "Remove," or "Clear all" immediately executes the action with no confirmation step and no undo. One misclick causes irreversible data loss.
+
+**Detect:**
+- Click handlers on destructive actions (delete, remove, overwrite, send, publish) that execute immediately without a confirmation dialog or undo mechanism.
+- Absence of both a confirmation step AND an undo/soft-delete pattern for irreversible operations.
+
+```jsx
+// VIOLATION: immediate delete, no confirmation, no undo
+<button onClick={() => deleteAccount(user.id)}>Delete Account</button>
+
+// FIX: confirmation dialog for destructive action
+<button onClick={() => setShowConfirm(true)}>Delete Account</button>
+{showConfirm && (
+  <dialog open>
+    <p>This will permanently delete your account and all data. This cannot be undone.</p>
+    <button onClick={() => setShowConfirm(false)}>Cancel</button>
+    <button onClick={() => deleteAccount(user.id)}>Delete permanently</button>
+  </dialog>
+)}
+```
+
+**Fix:** Destructive actions must have at least one safety net: a confirmation dialog that names the consequences, OR an undo window (soft-delete with time-limited recovery). For high-stakes actions (account deletion, bulk data removal), use both.
+
+---
+
 ## 7. Navigation, Routing & State Persistence
 
 ### 7.1 Redirects that lose the original target
@@ -337,6 +405,21 @@
 
 **Fix:** Persist the originally requested URL through the redirect chain (query param, session storage) and navigate there after authentication completes.
 
+```js
+// VIOLATION: redirect to homepage after login
+function requireAuth(req, res) {
+  if (!req.user) return res.redirect("/login");
+}
+
+// FIX: preserve original destination
+function requireAuth(req, res) {
+  if (!req.user) return res.redirect(`/login?returnUrl=${encodeURIComponent(req.originalUrl)}`);
+}
+// After login completes:
+const returnUrl = new URLSearchParams(window.location.search).get("returnUrl");
+navigate(returnUrl || "/dashboard");
+```
+
 ---
 
 ### 7.2 State not reflected in URL
@@ -347,6 +430,21 @@
 - Filter, search, sort, or pagination managed only in memory (component state, global store) without syncing to URL query params, hash, or path segments.
 
 **Fix:** Meaningful UI state — anything a user would want to share, bookmark, or recover on refresh — should be reflected in the URL.
+
+```js
+// VIOLATION: filters only in component state
+const [filters, setFilters] = useState({ category: "all", sort: "newest" });
+
+// FIX: sync filters to URL search params
+const [searchParams, setSearchParams] = useSearchParams();
+const filters = {
+  category: searchParams.get("category") || "all",
+  sort: searchParams.get("sort") || "newest",
+};
+function updateFilter(key, value) {
+  setSearchParams((prev) => { prev.set(key, value); return prev; });
+}
+```
 
 ---
 
@@ -399,6 +497,17 @@
 
 **Fix:** Use `overscroll-behavior: contain` to prevent pull-to-refresh conflicts. Inset touch targets away from screen edges to avoid OS gesture zones. Use gesture-velocity and direction thresholds to disambiguate competing swipe intents.
 
+```css
+/* VIOLATION: carousel inside scrollable page, pull-to-refresh conflicts */
+.carousel { touch-action: pan-x; }
+
+/* FIX: contain overscroll to prevent OS gesture conflicts */
+.carousel {
+  touch-action: pan-x;
+  overscroll-behavior-x: contain;
+}
+```
+
 ---
 
 ## 9. Timing, Debounce & Race Conditions
@@ -441,6 +550,37 @@ async function search(query) {
 ```
 
 **Fix:** Cancel or ignore stale requests. Use request abort/cancellation, sequence IDs, or check that the response still matches the current user input before applying it.
+
+---
+
+### 9.3 Session expiration during active use
+
+**Violation:** The user is mid-task — filling a form, composing a message, editing a document — and the session expires silently. Their next action either fails with a cryptic error, redirects to login and loses all in-progress work, or silently discards the submission.
+
+**Detect:**
+- Session/token expiry that triggers a hard redirect to login with no preservation of in-progress state.
+- API calls that return 401/403 after session timeout without client-side handling to warn the user or refresh the token.
+- Absence of proactive session expiry warnings or silent token refresh mechanisms.
+
+```js
+// VIOLATION: 401 redirects to login, user loses form data
+fetch("/api/save", { method: "POST", body }).then((res) => {
+  if (res.status === 401) window.location.href = "/login";
+});
+
+// FIX: warn before expiry, attempt silent refresh, preserve state
+function handleApiResponse(res) {
+  if (res.status === 401) {
+    const saved = saveFormState(); // persist in-progress work
+    const refreshed = await attemptTokenRefresh();
+    if (refreshed) return retryRequest(); // seamless for user
+    showModal("Your session expired. Your work has been saved. Please log in to continue.");
+    redirectToLogin({ returnUrl: window.location.href });
+  }
+}
+```
+
+**Fix:** (1) Proactively warn before session expiry ("Your session expires in 2 minutes"). (2) Attempt silent token refresh when possible. (3) If expiry is unavoidable, preserve in-progress state (localStorage, sessionStorage) before redirecting. (4) After re-authentication, restore state and return the user to where they were.
 
 ---
 
@@ -544,6 +684,19 @@ Accessibility Problems That Manifest as UX Bugs.
 
 **Fix:** Define a z-index scale as named layers (e.g., dropdown=100, sticky=200, modal=300, toast=400). Render overlays that must escape parent clipping via a portal/teleport to the document root or a dedicated overlay container.
 
+```css
+/* FIX: define a systematic z-index scale */
+:root {
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-overlay: 300;
+  --z-modal: 400;
+  --z-toast: 500;
+}
+.dropdown { z-index: var(--z-dropdown); }
+.modal { z-index: var(--z-modal); }
+```
+
 ---
 
 ## 12. Mobile & Viewport-Specific
@@ -558,6 +711,20 @@ Accessibility Problems That Manifest as UX Bugs.
 
 **Fix:** Use `visualViewport` API or equivalent to detect keyboard and adjust. Ensure focused inputs scroll into view. Avoid fixed-position elements in areas that overlap with the virtual keyboard.
 
+```js
+// FIX: adjust for virtual keyboard using visualViewport
+if (window.visualViewport) {
+  window.visualViewport.addEventListener("resize", () => {
+    const keyboardHeight = window.innerHeight - window.visualViewport.height;
+    document.documentElement.style.setProperty("--keyboard-height", `${keyboardHeight}px`);
+  });
+}
+```
+```css
+/* Use the CSS variable to offset fixed bottom elements */
+.fixed-bottom { bottom: var(--keyboard-height, 0px); }
+```
+
 ---
 
 ### 12.2 `100vh` jitter on mobile
@@ -568,6 +735,8 @@ Accessibility Problems That Manifest as UX Bugs.
 - Use of `100vh` for full-screen layouts on mobile (hero sections, modals, splash screens).
 
 **Fix:** Use `100dvh` (dynamic viewport height), `100svh` (small viewport height), or JavaScript-based viewport detection instead of `100vh` on mobile.
+
+---
 
 ## 13. Cumulative Decay & Long-Term UX
 
@@ -581,6 +750,17 @@ Accessibility Problems That Manifest as UX Bugs.
 
 **Fix:** User preferences are priority. Never overwrite them on update. If a preference must change (deprecated option), notify the user and offer a migration path.
 
+```js
+// VIOLATION: overwrite with defaults on init
+const prefs = { theme: "light", notifications: true };
+localStorage.setItem("prefs", JSON.stringify(prefs));
+
+// FIX: merge defaults with existing preferences
+const defaults = { theme: "light", notifications: true };
+const saved = JSON.parse(localStorage.getItem("prefs") || "{}");
+const prefs = { ...defaults, ...saved };
+```
+
 ---
 
 ### 13.2 Cache/storage bloat
@@ -591,7 +771,28 @@ Accessibility Problems That Manifest as UX Bugs.
 - Caching strategies with no TTL, LRU eviction, or maximum size limit.
 - Local storage / IndexedDB / cache API usage without cleanup logic.
 
-**Fix:** Implement cache eviction policies (TTL, LRU, max entries). Monitor storage usage. 
+**Fix:** Implement cache eviction policies (TTL, LRU, max entries). Monitor storage usage.
+
+```js
+// VIOLATION: unbounded cache, no cleanup
+function cacheResponse(key, data) {
+  localStorage.setItem(key, JSON.stringify(data));
+}
+
+// FIX: TTL-based cache with size limit
+function cacheResponse(key, data, ttlMs = 3600000) {
+  const entry = { data, expires: Date.now() + ttlMs };
+  localStorage.setItem(key, JSON.stringify(entry));
+  evictIfOverLimit(50); // max 50 entries
+}
+function getCached(key) {
+  const raw = localStorage.getItem(key);
+  if (!raw) return null;
+  const entry = JSON.parse(raw);
+  if (Date.now() > entry.expires) { localStorage.removeItem(key); return null; }
+  return entry.data;
+}
+```
 
 ---
 
