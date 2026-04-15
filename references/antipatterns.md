@@ -1,5 +1,28 @@
 # UX Anti-Pattern Detection Heuristics
 
+## Quick Reference: Symptom → Category
+
+| User complaint / code smell | Category |
+|---|---|
+| "Button does nothing when I click it" | 2. Feedback & Responsiveness |
+| "I clicked the wrong thing — it moved" | 1. Layout Stability |
+| "I lost my form data" | 4. Forms & Input Interference |
+| "It says 'Something went wrong' with no explanation" | 3. Error Handling & Recovery |
+| "The page jumped while I was typing" | 5. Focus |
+| "I got the same notification 5 times" | 6. Notifications & Dialogs |
+| "I logged in and it forgot where I was going" | 7. Navigation & State Persistence |
+| "I scrolled back and lost my place" | 8. Scroll & Viewport |
+| "My order was placed twice" | 9. Timing & Race Conditions |
+| "I was filling out a form and it logged me out" | 9. Timing & Race Conditions |
+| "I clicked delete and it just... deleted it" | 6. Notifications & Dialogs |
+| "It's been loading for 2 minutes with no progress bar" | 2. Feedback & Responsiveness |
+| "I can't use this with my keyboard" | 10. Accessibility as UX |
+| "The dropdown is hidden behind the modal" | 11. Visual Layering |
+| "The keyboard covers the input on my phone" | 12. Mobile & Viewport-Specific |
+| "The app gets slower over time" | 13. Cumulative Decay |
+
+---
+
 ## Table of Contents
 
 1. [Layout Stability](#1-layout-stability)

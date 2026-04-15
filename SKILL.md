@@ -1,6 +1,6 @@
 ---
 name: ux-antipatterns
-description: Use when reviewing, building, or refactoring frontend UI — components, pages, forms, or interactive flows. Triggers on code review, pull requests, and new feature implementation involving user-facing interfaces.
+description: "Detects UX anti-patterns in frontend code — layout shifts, missing loading states, broken form inputs, focus traps, race conditions, and accessibility failures. Use when reviewing or building React, Vue, Svelte, or HTML/CSS components, pages, forms, or interactive flows in pull requests and feature branches."
 ---
 
 # UX Anti-Pattern Detection
@@ -54,26 +54,53 @@ Before checking individual rules, internalize these. They are the "why" behind e
 | 12 | Mobile & Viewport-Specific | Keyboard covers input, layout jumps on scroll, tap targets unresponsive; basic mobile interaction degraded. |
 | 13 | Cumulative Decay & Long-Term UX | App degrades over time; preferences lost, performance rots, stale experiments create inconsistencies. |
 
-## Quick Reference: Symptom → Category
+## Examples
 
-| User complaint / code smell | Category |
-|---|---|
-| "Button does nothing when I click it" | 2. Feedback & Responsiveness |
-| "I clicked the wrong thing — it moved" | 1. Layout Stability |
-| "I lost my form data" | 4. Forms & Input Interference |
-| "It says 'Something went wrong' with no explanation" | 3. Error Handling & Recovery |
-| "The page jumped while I was typing" | 5. Focus |
-| "I got the same notification 5 times" | 6. Notifications & Dialogs |
-| "I logged in and it forgot where I was going" | 7. Navigation & State Persistence |
-| "I scrolled back and lost my place" | 8. Scroll & Viewport |
-| "My order was placed twice" | 9. Timing & Race Conditions |
-| "I was filling out a form and it logged me out" | 9. Timing & Race Conditions |
-| "I clicked delete and it just... deleted it" | 6. Notifications & Dialogs |
-| "It's been loading for 2 minutes with no progress bar" | 2. Feedback & Responsiveness |
-| "I can't use this with my keyboard" | 10. Accessibility as UX |
-| "The dropdown is hidden behind the modal" | 11. Visual Layering |
-| "The keyboard covers the input on my phone" | 12. Mobile & Viewport-Specific |
-| "The app gets slower over time" | 13. Cumulative Decay |
+Common anti-patterns and their fixes:
+
+```jsx
+// VIOLATION: submit button with no loading state (Category 2)
+<button onClick={() => submitForm(data)}>Submit</button>
+
+// FIX: disable and show feedback during async operation
+<button onClick={handleSubmit} disabled={isSubmitting}>
+  {isSubmitting ? "Submitting..." : "Submit"}
+</button>
+```
+
+```jsx
+// VIOLATION: immediate destructive action, no confirmation (Category 6)
+<button onClick={() => deleteItem(id)}>Delete</button>
+
+// FIX: confirm before irreversible action
+<button onClick={() => setConfirmDelete(true)}>Delete</button>
+{confirmDelete && (
+  <dialog open>
+    <p>Delete this item? This cannot be undone.</p>
+    <button onClick={() => setConfirmDelete(false)}>Cancel</button>
+    <button onClick={() => { deleteItem(id); setConfirmDelete(false); }}>
+      Delete permanently
+    </button>
+  </dialog>
+)}
+```
+
+```js
+// VIOLATION: stale search response overwrites newer results (Category 9)
+async function search(query) {
+  const res = await fetch(`/search?q=${query}`);
+  setResults(await res.json());
+}
+
+// FIX: abort previous request to prevent race condition
+let controller;
+async function search(query) {
+  controller?.abort();
+  controller = new AbortController();
+  const res = await fetch(`/search?q=${query}`, { signal: controller.signal });
+  setResults(await res.json());
+}
+```
 
 ## Common Mistakes
 
